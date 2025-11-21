@@ -211,7 +211,7 @@ jobs:
 
             # sync content to wordpress
             docker exec "$WP_ID" sh -c "rsync -avu /tmp/repo-wp-content/ /var/www/html/wp-content/"
-            docker exec "$WP_ID" sh -c "rsync -av --ignore-existing /var/www/html/wp-content/uploads/bpp-wp-core-images/ /var/www/html/wp-content/uploads/"
+            docker exec "$WP_ID" sh -c "rsync -av --ignore-existing /var/www/html/wp-content/uploads/core-images/ /var/www/html/wp-content/uploads/"
 
             # set permissions
             docker exec "$WP_ID" chown -R www-data:www-data /var/www/html/wp-content

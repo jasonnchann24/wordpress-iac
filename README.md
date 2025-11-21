@@ -10,7 +10,7 @@ This repository contains Infrastructure as Code (IaC) and Continuous Integration
 - Traefik as a TLS termination proxy
 - Dockerized WordPress setup
 - Cloudflare for DNS management
-- check [production/.env.example](production/.env.example) for WordPress environment variables
+- Check [production/.env.example](production/.env.example) for WordPress environment variables
 
 ## Development
 
