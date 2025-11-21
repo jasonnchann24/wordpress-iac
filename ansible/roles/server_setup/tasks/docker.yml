@@ -1,0 +1,24 @@
+- name: docker | Update & upgrade apt
+  apt:
+    update_cache: yes
+    upgrade: dist
+    autoremove: yes
+
+- name: docker | Install required packages
+  apt:
+    name:
+      - docker.io
+      - docker-compose
+    state: present
+
+- name: docker | Add ubuntu user to docker group
+  user:
+    name: ubuntu
+    groups: docker
+    append: yes
+
+- name: docker | Enable & start docker
+  systemd:
+    name: docker
+    enabled: yes
+    state: started

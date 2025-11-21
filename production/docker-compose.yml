@@ -1,0 +1,93 @@
+version: "3.9"
+
+services:
+  traefik:
+    image: traefik:v3.0
+    command:
+      - "--log.level=INFO"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.cf.acme.dnschallenge=true"
+      - "--certificatesresolvers.cf.acme.dnschallenge.provider=cloudflare"
+      - "--certificatesresolvers.cf.acme.email=${ACME_EMAIL}"
+      - "--certificatesresolvers.cf.acme.storage=/acme.json"
+      - "--accesslog=true"
+      - "--accesslog.filepath=/traefik/access.log"
+
+    environment:
+      - CF_DNS_API_TOKEN=${CF_API_TOKEN}
+      - ACME_EMAIL=${ACME_EMAIL}
+
+    ports:
+      - "80:80"
+      - "443:443"
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/acme.json:/acme.json
+      - ./traefik/access.log:/traefik/access.log
+
+    restart: always
+
+    labels:
+      # HTTP → HTTPS redirect
+      - "traefik.http.routers.http-catchall.rule=HostRegexp(`{host:.+}`)"
+      - "traefik.http.routers.http-catchall.entrypoints=web"
+      - "traefik.http.routers.http-catchall.middlewares=redirect-to-https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+
+  wordpress:
+    image: wordpress:6.8.3
+    volumes:
+      - wp_content:/var/www/html/wp-content
+    env_file:
+      - .env
+    environment:
+      WORDPRESS_DB_HOST: ${WORDPRESS_DB_HOST}
+      WORDPRESS_DB_USER: ${WORDPRESS_DB_USER}
+      WORDPRESS_DB_PASSWORD: ${WORDPRESS_DB_PASSWORD}
+      WORDPRESS_DB_NAME: ${WORDPRESS_DB_NAME}
+      WORDPRESS_DOMAIN: ${WORDPRESS_DOMAIN}
+      BASIC_AUTH: ${BASIC_AUTH}
+    labels:
+      - "traefik.enable=true"
+
+      # Main WordPress router (public pages)
+      - "traefik.http.routers.wp.rule=Host(`${WORDPRESS_DOMAIN}`)"
+      - "traefik.http.routers.wp.entrypoints=websecure"
+      - "traefik.http.routers.wp.tls.certresolver=cf"
+      - "traefik.http.services.wp.loadbalancer.server.port=80"
+
+      # Rate limiting middleware for main router
+      - "traefik.http.middlewares.wp-rate-limit.ratelimit.average=10" # 10 req/sec per IP
+      - "traefik.http.middlewares.wp-rate-limit.ratelimit.burst=20"
+
+      - "traefik.http.routers.wp.middlewares=wp-rate-limit"
+
+      # HTTP Basic Auth middleware for admin
+      - "traefik.http.middlewares.wp-admin-auth.basicauth.users=${BASIC_AUTH}"
+
+      # Router for /wp-admin and /wp-login.php
+      - "traefik.http.routers.wp-admin.rule=Host(`${WORDPRESS_DOMAIN}`) && (PathPrefix(`/wp-admin`) || Path(`/wp-login.php`))"
+      - "traefik.http.routers.wp-admin.entrypoints=websecure"
+      - "traefik.http.routers.wp-admin.tls.certresolver=cf"
+      - "traefik.http.routers.wp-admin.middlewares=wp-admin-auth,wp-rate-limit"
+    restart: always
+
+  db:
+    image: mariadb:10.11
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - ./db-data:/var/lib/mysql
+    restart: always
+
+volumes:
+  wp_content:

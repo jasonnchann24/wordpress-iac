@@ -1,0 +1,223 @@
+name: Terraform & Ansible
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.0
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Write Terraform TFVARS
+        working-directory: ./terraform
+        env:
+          VULTR_API_KEY: ${{ secrets.VULTR_API_KEY }}
+          REGION: ${{ secrets.REGION }}
+          PLAN: ${{ secrets.PLAN }}
+          OS_ID: ${{ secrets.OS_ID }}
+          HOSTNAME: ${{ secrets.HOSTNAME }}
+          LABEL: ${{ secrets.LABEL }}
+          VULTR_SSH_KEY_ID: ${{ secrets.VULTR_SSH_KEY_ID }}
+          SSH_PUB_KEY: ${{ secrets.SSH_PUB_KEY }}
+        run: |
+          cat > terraform.tfvars <<EOF
+          vultr_api_key        = "${VULTR_API_KEY}"
+          region               = "${REGION:-sgp}"
+          plan                 = "${PLAN:-vc2-1c-1gb}"
+          os_id                = ${OS_ID:-2284}
+          cloud_ssh_pub_key_id = "${VULTR_SSH_KEY_ID}"
+          hostname             = "${HOSTNAME:-hostname-default}"
+          label                = "${LABEL:-label-default}"
+          ssh_pub_key          = "${SSH_PUB_KEY}"
+          EOF
+
+      - name: Terraform Init
+        working-directory: ./terraform
+        run: terraform init -input=false
+
+      - name: Terraform Plan
+        working-directory: ./terraform
+        run: terraform plan -input=false -no-color -var-file=terraform.tfvars
+
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main'
+        working-directory: ./terraform
+        run: terraform apply -auto-approve -var-file=terraform.tfvars
+
+      - name: Terraform Output
+        id: tf_output
+        working-directory: ./terraform
+        run: |
+          WORDPRESS_IP=$(terraform output -raw wordpress_ip)
+          echo "WORDPRESS_IP=$WORDPRESS_IP" >> $GITHUB_ENV
+          echo "wordpress_ip=$WORDPRESS_IP" >> $GITHUB_OUTPUT
+
+    outputs:
+      wordpress_ip: ${{ steps.tf_output.outputs.wordpress_ip }}
+
+  ansible:
+    needs: terraform
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Write SSH Key
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ./ansible/id_rsa
+          echo "" >> ./ansible/id_rsa
+          chmod 600 ./ansible/id_rsa
+
+      - name: Add SSH Key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Write Deploy Key
+        run: |
+          mkdir -p ./ansible
+          echo "${{ secrets.DEPLOY_PRIVATE_KEY }}" > ./ansible/deploy_key
+          echo "" >> ./ansible/deploy_key
+          chmod 600 ./ansible/deploy_key
+
+      - name: Test SSH key
+        run: ssh -i ./ansible/deploy_key -o StrictHostKeyChecking=no -T git@github.com || true
+
+      - name: Setup Python & pip
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.12
+
+      - name: Cache pip packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('ansible-requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install Ansible via pip
+        run: |
+          pip install --upgrade pip
+          pip install ansible
+
+      - name: Install necessary Ansible collections
+        working-directory: ./ansible
+        run: |
+          ansible-galaxy collection install hifis.toolkit
+
+      - name: Set WORDPRESS_IP
+        run: |
+          echo "WORDPRESS_IP=${{ needs.terraform.outputs.wordpress_ip }}" >> $GITHUB_ENV
+
+      - name: Run Ansible Playbook
+        working-directory: ./ansible
+        run: |
+          ansible-playbook -i inventory.yml playbook.yml \
+            --extra-vars "wordpress_ip=$WORDPRESS_IP private_key_path=./id_rsa ssh_port=${{ secrets.SSH_PORT }} deploy_key_path=./deploy_key"
+
+  deploy:
+    needs: [terraform, ansible]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Set DEPLOY_HOST
+        run: |
+          echo "DEPLOY_HOST=${{ needs.terraform.outputs.wordpress_ip }}" >> $GITHUB_ENV
+
+      - name: Ensure project exists on server
+        run: |
+          ssh -o StrictHostKeyChecking=no -p ${{ secrets.SSH_PORT }} ubuntu@$DEPLOY_HOST "
+            if [ -d ~/project ]; then
+              cd ~/project && git pull
+            else
+              git clone ${{ secrets.REPO_SSH_URL }} ~/project
+            fi
+          "
+
+      - name: Copy .env to server
+        run: |
+          cat > .env.temp <<'EOF'
+          ${{ secrets.DOTENV_FILE }}
+          EOF
+          scp -P ${{ secrets.SSH_PORT }} .env.temp ubuntu@$DEPLOY_HOST:~/project/production/.env
+          rm .env.temp
+
+      - name: Setup Traefik log rotation
+        run: |
+          ssh -o StrictHostKeyChecking=no -p ${{ secrets.SSH_PORT }} ubuntu@$DEPLOY_HOST << 'EOF'
+            set -e
+
+            # create logrotate config directory
+            mkdir -p ~/project/production/traefik/logrotate.d
+
+            # create the logrotate state file
+            touch ~/project/production/traefik/logrotate.state
+
+            # create the config file if it doesn't exist
+            if [ ! -f ~/project/production/traefik/logrotate.d/traefik ]; then
+              echo '~/project/production/traefik/access.log { daily rotate 14 compress missingok notifempty copytruncate }' > ~/project/production/traefik/logrotate.d/traefik
+            fi
+
+            # add cron job if it doesn't already exist
+            crontab -l 2>/dev/null | grep -q 'logrotate.d/traefik' || (
+              crontab -l 2>/dev/null
+              echo '0 0 * * * /usr/sbin/logrotate -s ~/project/production/traefik/logrotate.state ~/wordpress/production/traefik/logrotate.d/traefik'
+            ) | crontab -
+          EOF
+
+      - name: Build & deploy Docker
+        run: |
+          ssh -o StrictHostKeyChecking=no -p ${{ secrets.SSH_PORT }} ubuntu@$DEPLOY_HOST << 'EOF'
+            set -e
+
+            cd ~/project/production
+
+            # permissions
+            chmod 600 ./traefik/acme.json
+            chmod +x ./docker-entrypoint-init.sh
+
+            # rebuild containers
+            docker-compose down
+            docker-compose up -d --build
+
+            # get wordpress container ID
+            WP_ID=$(docker-compose ps -q wordpress)
+
+            # install rsync inside container
+            docker exec "$WP_ID" sh -c "apt-get update && apt-get install -y rsync"
+
+            # copy wp-content from host to container tmp folder
+            docker cp /home/ubuntu/project/wp-content/. "$WP_ID":/tmp/repo-wp-content
+
+            # sync content to wordpress
+            docker exec "$WP_ID" sh -c "rsync -avu /tmp/repo-wp-content/ /var/www/html/wp-content/"
+            docker exec "$WP_ID" sh -c "rsync -av --ignore-existing /var/www/html/wp-content/uploads/bpp-wp-core-images/ /var/www/html/wp-content/uploads/"
+
+            # set permissions
+            docker exec "$WP_ID" chown -R www-data:www-data /var/www/html/wp-content
+            docker exec "$WP_ID" find /var/www/html/wp-content -type d -exec chmod 755 {} \;
+            docker exec "$WP_ID" find /var/www/html/wp-content -type f -exec chmod 644 {} \;
+
+            # clean up
+            docker exec "$WP_ID" rm -rf /tmp/repo-wp-content
+          EOF

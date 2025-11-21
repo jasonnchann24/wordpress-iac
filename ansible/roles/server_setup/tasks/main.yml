@@ -1,0 +1,7 @@
+- import_tasks: packages.yml
+- import_tasks: docker.yml
+- import_tasks: ssh_hardening.yml
+- import_tasks: ssh_setup.yml
+- import_tasks: fail2ban.yml
+- import_tasks: firewall.yml
+- import_tasks: github_deploy_key_setup.yml

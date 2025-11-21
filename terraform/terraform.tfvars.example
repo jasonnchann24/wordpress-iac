@@ -1,0 +1,8 @@
+vultr_api_key = "YOUR_API_KEY"
+region        = "sgp"
+plan          = "vc2-1c-1gb"
+os_id         = 2284
+ssh_key_id    = "YOUR_SSH_KEY_UUID_GET_FROM_VULTR_API_KEYS_EDIT_CHECK_URL"
+hostname      = "hostname-default"
+label         = "label-default"
+ssh_pub_key   = "YOUR PUB KEY FOR NON-ROOT"

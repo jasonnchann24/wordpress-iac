@@ -1,0 +1,30 @@
+- name: ssh_setup | Ensure ubuntu .ssh directory exists
+  file:
+    path: /home/ubuntu/.ssh
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: '0700'
+
+
+- name: ssh_setup | Check if root authorized_keys exists
+  stat:
+    path: /root/.ssh/authorized_keys
+  register: root_auth_keys
+
+
+- name: ssh_setup | Check if ubuntu authorized_keys exists
+  stat:
+    path: /home/ubuntu/.ssh/authorized_keys
+  register: ubuntu_auth_keys
+
+
+- name: ssh_setup | Copy Vultr injected root key to ubuntu
+  copy:
+    src: /root/.ssh/authorized_keys
+    dest: /home/ubuntu/.ssh/authorized_keys
+    owner: ubuntu
+    group: ubuntu
+    mode: '0600'
+    remote_src: yes
+  when: root_auth_keys.stat.exists and not ubuntu_auth_keys.stat.exists

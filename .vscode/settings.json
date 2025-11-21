@@ -1,0 +1,9 @@
+{
+    "editor.formatOnSave": true,
+    "phpsab.standard": "WordPress",
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true,
+    "cSpell.words": [
+        "Bloghash"
+    ],
+}

@@ -1,0 +1,23 @@
+*.env
+*.tfvars
+deploy_key
+vendor/
+
+# Ignore everything in wp-content except what we explicitly allow
+wp-content/*
+!wp-content/themes/
+!wp-content/uploads/
+
+# Allow only the child theme (block all other themes)
+wp-content/themes/*
+!wp-content/themes/bloghash-child/
+!wp-content/themes/bloghash-child/**
+
+# Allow only the core-images folder
+wp-content/uploads/*
+!wp-content/uploads/core-images/
+!wp-content/uploads/core-images/**
+
+*.tfstate
+*.tfstate.backup
+.terraform/

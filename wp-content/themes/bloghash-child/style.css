@@ -1,0 +1,14 @@
+/*
+* Theme Name:   BlogHash Child
+* Template:     bloghash
+*/
+
+.woocommerce ul.products li.product,
+.woocommerce-page ul.products li.product {
+  min-height: 460px !important;
+}
+
+.wc-block-components-express-payment--checkout
+  .wc-block-components-express-payment__event-buttons {
+  margin-left: 0px !important;
+}

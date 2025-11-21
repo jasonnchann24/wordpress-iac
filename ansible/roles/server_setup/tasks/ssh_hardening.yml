@@ -1,0 +1,15 @@
+- name: ssh_hardening | Harden SSH
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+  loop:
+    - { regexp: '^#Port 22', line: "Port {{ ssh_port }}" }
+    - { regexp: '^PasswordAuthentication', line: "PasswordAuthentication no" }
+    - { regexp: '^PermitRootLogin', line: "PermitRootLogin no" }
+
+- name: ssh_hardening | Reload SSH
+  service:
+    name: ssh
+    state: reloaded

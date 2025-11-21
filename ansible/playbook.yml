@@ -1,0 +1,45 @@
+- hosts: wordpress
+  gather_facts: false
+  become: yes
+
+  pre_tasks:
+    - name: pre_tasks | Test port 22
+      wait_for:
+        host: "{{ ansible_host }}"
+        port: 22
+        timeout: 3
+      ignore_errors: yes
+      ignore_unreachable: yes
+      register: result
+      delegate_to: localhost
+
+    - name: pre_tasks | Select SSH port
+      set_fact:
+        chosen_port: "{{ result.failed | ternary(ssh_port, 22) }}"
+
+    - name: pre_tasks | Override host connection vars
+      add_host:
+        name: wp_server
+        ansible_host: "{{ ansible_host }}"
+        ansible_port: "{{ chosen_port }}"
+        ansible_user: ubuntu
+        ansible_ssh_private_key_file: "{{ private_key_path }}"
+      changed_when: false
+
+    - name: pre_tasks | Gather actual facts now that SSH works
+      setup:
+
+  tasks:
+    - name: Run server setup
+      import_role:
+        name: server_setup
+
+    - name: Run unattended upgrades asynchronously
+      import_role:
+        name: hifis.toolkit.unattended_upgrades
+      async: 600
+      poll: 0
+
+    - name: Run WordPress server role
+      import_role:
+        name: wordpress_server

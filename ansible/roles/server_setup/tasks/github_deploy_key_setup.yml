@@ -1,0 +1,31 @@
+- name: github_deploy_key_setup | Ensure .ssh directory exists for ubuntu
+  file:
+    path: /home/ubuntu/.ssh
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: '0700'
+
+- name: github_deploy_key_setup | Install deploy private key
+  copy:
+    dest: /home/ubuntu/.ssh/id_rsa
+    content: "{{ lookup('file', './deploy_key') }}\n"
+    owner: ubuntu
+    group: ubuntu
+    mode: '0600'
+    force: yes     
+
+- name: github_deploy_key_setup | Ensure known_hosts file exists
+  file:
+    path: /home/ubuntu/.ssh/known_hosts
+    state: touch
+    owner: ubuntu
+    group: ubuntu
+    mode: '0644'
+
+- name: github_deploy_key_setup | Ensure known_hosts contains github.com
+  known_hosts:
+    name: github.com
+    key: "{{ lookup('pipe', 'ssh-keyscan -t rsa github.com') }}"
+    path: /home/ubuntu/.ssh/known_hosts
+    state: present

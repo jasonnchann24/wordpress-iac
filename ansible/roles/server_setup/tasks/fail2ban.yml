@@ -1,0 +1,29 @@
+- name: fail2ban | Ensure Fail2ban service is enabled
+  systemd:
+    name: fail2ban
+    enabled: yes
+
+- name: fail2ban | Create Fail2ban local config file (jail.local)
+  copy:
+    dest: /etc/fail2ban/jail.local
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      [DEFAULT]
+      bantime  = 10m
+      findtime = 10m
+      maxretry = 5
+      ignoreip = 127.0.0.1/8
+
+      [sshd]
+      enabled  = true
+      port     = {{ ssh_port | default(22) }}
+      filter   = sshd
+      logpath  = /var/log/auth.log
+      maxretry = 5
+
+- name: fail2ban | Restart Fail2ban to apply changes
+  systemd:
+    name: fail2ban
+    state: restarted

@@ -1,0 +1,15 @@
+- name: packages | Update apt cache if older than 1 hour
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: packages | Upgrade installed packages
+  apt:
+    upgrade: yes
+    autoremove: yes
+
+- name: packages | Install required wordpress packages
+  apt:
+    name:
+      - rsync
+    state: present
