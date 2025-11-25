@@ -9,6 +9,9 @@ This repository contains Infrastructure as Code (IaC) and Continuous Integration
 - CI/CD pipeline using GitHub Actions
 - Traefik as a TLS termination proxy
 - Dockerized WordPress setup
+- Sidecar WordPress service for `action-scheduler`
+- Automated composer install for vendor autoload (every plugins in wp-content/plugins)
+- wp-config extras [production/wordpress/config-extra.php](./production/wordpress/config-extra.php)
 - Cloudflare for DNS management
 - Check [production/.env.example](production/.env.example) for WordPress environment variables
 

@@ -1,6 +1,10 @@
 version: "3.9"
 
 services:
+  noop:
+    image: nginx:alpine
+    command: ["nginx", "-g", "daemon off;"]
+
   traefik:
     image: traefik:v3.0
     command:
@@ -39,9 +43,10 @@ services:
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
 
   wordpress:
-    image: wordpress:6.8.3
+    build: ./wordpress
     volumes:
       - wp_content:/var/www/html/wp-content
+      - wp_html:/var/www/html
     env_file:
       - .env
     environment:
@@ -54,26 +59,52 @@ services:
     labels:
       - "traefik.enable=true"
 
-      # Main WordPress router (public pages)
+      # Service definition
+      - "traefik.http.services.wp.loadbalancer.server.port=80"
+
+      # PUBLIC ROUTER
       - "traefik.http.routers.wp.rule=Host(`${WORDPRESS_DOMAIN}`)"
       - "traefik.http.routers.wp.entrypoints=websecure"
       - "traefik.http.routers.wp.tls.certresolver=cf"
-      - "traefik.http.services.wp.loadbalancer.server.port=80"
+      - "traefik.http.routers.wp.service=wp"
+      - "traefik.http.routers.wp.middlewares=wp-rate-limit"
+      - "traefik.http.routers.wp.priority=1"
 
-      # Rate limiting middleware for main router
-      - "traefik.http.middlewares.wp-rate-limit.ratelimit.average=10" # 10 req/sec per IP
+      # Rate limiting middleware
+      - "traefik.http.middlewares.wp-rate-limit.ratelimit.average=10"
       - "traefik.http.middlewares.wp-rate-limit.ratelimit.burst=20"
 
-      - "traefik.http.routers.wp.middlewares=wp-rate-limit"
+      - "traefik.http.middlewares.wp-login-rate-limit.ratelimit.average=3"
+      - "traefik.http.middlewares.wp-login-rate-limit.ratelimit.burst=5"
 
-      # HTTP Basic Auth middleware for admin
+      # HTTP Basic auth layer
       - "traefik.http.middlewares.wp-admin-auth.basicauth.users=${BASIC_AUTH}"
 
-      # Router for /wp-admin and /wp-login.php
-      - "traefik.http.routers.wp-admin.rule=Host(`${WORDPRESS_DOMAIN}`) && (PathPrefix(`/wp-admin`) || Path(`/wp-login.php`))"
+      # Router for /wp-admin and /wp-login.php and login
+      - "traefik.http.routers.wp-admin.rule=Host(`${WORDPRESS_DOMAIN}`) && (PathPrefix(`/wp-admin`) || Path(`/wp-login.php`) || PathPrefix(`/login`) || PathPrefix(`/backoffice`))"
       - "traefik.http.routers.wp-admin.entrypoints=websecure"
       - "traefik.http.routers.wp-admin.tls.certresolver=cf"
-      - "traefik.http.routers.wp-admin.middlewares=wp-admin-auth,wp-rate-limit"
+      - "traefik.http.routers.wp-admin.middlewares=wp-admin-auth,wp-login-rate-limit"
+    restart: always
+
+  wp-cli:
+    image: wordpress:cli-2.12
+    container_name: wp-cli
+    volumes:
+      - wp_content:/var/www/html/wp-content
+      - wp_html:/var/www/html
+    environment:
+      WORDPRESS_DB_HOST: ${WORDPRESS_DB_HOST}
+      WORDPRESS_DB_USER: ${WORDPRESS_DB_USER}
+      WORDPRESS_DB_PASSWORD: ${WORDPRESS_DB_PASSWORD}
+      WORDPRESS_DB_NAME: ${WORDPRESS_DB_NAME}
+      WORDPRESS_DOMAIN: ${WORDPRESS_DOMAIN}
+    entrypoint: ["sh", "-c"]
+    command: |
+      "while true; do
+        wp --allow-root --path=/var/www/html action-scheduler run >/dev/null 2>&1
+        sleep 30
+      done"
     restart: always
 
   db:
@@ -91,3 +122,4 @@ services:
 
 volumes:
   wp_content:
+  wp_html:

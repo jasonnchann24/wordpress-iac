@@ -185,6 +185,26 @@ jobs:
             ) | crontab -
           EOF
 
+      - name: Build WordPress plugins (composer install)
+        run: |
+          mkdir -p build-wp-content/plugins
+
+          for plugin in wp-content/plugins/*; do
+            if [ -f "$plugin/composer.json" ]; then
+              echo "Installing composer for: $(basename $plugin)"
+              composer install --no-dev --optimize-autoloader --working-dir="$plugin"
+            fi
+
+            cp -R "$plugin" build-wp-content/plugins/
+          done
+
+      - name: Upload wp-content (composer built) to server
+        run: |
+          rsync -avz --delete \
+            -e "ssh -o StrictHostKeyChecking=no -p ${{ secrets.SSH_PORT }}" \
+            build-wp-content/ \
+            ubuntu@$DEPLOY_HOST:/home/ubuntu/fresh-wp-content/
+
       - name: Build & deploy Docker
         run: |
           ssh -o StrictHostKeyChecking=no -p ${{ secrets.SSH_PORT }} ubuntu@$DEPLOY_HOST << 'EOF'
@@ -194,7 +214,7 @@ jobs:
 
             # permissions
             chmod 600 ./traefik/acme.json
-            chmod +x ./docker-entrypoint-init.sh
+            chmod +x ./wordpress/patch-wp-config.sh
 
             # rebuild containers
             docker-compose down
@@ -207,11 +227,11 @@ jobs:
             docker exec "$WP_ID" sh -c "apt-get update && apt-get install -y rsync"
 
             # copy wp-content from host to container tmp folder
-            docker cp /home/ubuntu/project/wp-content/. "$WP_ID":/tmp/repo-wp-content
+            docker cp /home/ubuntu/fresh-wp-content/. "$WP_ID":/tmp/repo-wp-content
 
             # sync content to wordpress
             docker exec "$WP_ID" sh -c "rsync -avu /tmp/repo-wp-content/ /var/www/html/wp-content/"
-            docker exec "$WP_ID" sh -c "rsync -av --ignore-existing /var/www/html/wp-content/uploads/core-images/ /var/www/html/wp-content/uploads/"
+            docker exec "$WP_ID" sh -c "rsync -av --ignore-existing /var/www/html/wp-content/uploads/bpp-wp-core-images/ /var/www/html/wp-content/uploads/"
 
             # set permissions
             docker exec "$WP_ID" chown -R www-data:www-data /var/www/html/wp-content
